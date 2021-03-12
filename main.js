@@ -15,6 +15,7 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    icon: __dirname + '/images/logo.ico',
     webPreferences: {
       nodeIntegration: true
     }
@@ -44,6 +45,7 @@ function createNewFile() {
     name: 'novo_arquivo.txt',
     content: '',
     saved: false,
+    
     path: app.getPath('documents') + '/novo_arquivo.txt'
   }
 
