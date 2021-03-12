@@ -2,7 +2,10 @@
 e outro de renderização das telas*/
 
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Menu } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
+//const { writeFile } = require('original-fs')
+const fs = require('fs')
+const path = require('path')
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -20,169 +23,218 @@ async function createWindow() {
 
   // Load the index.html of the app.
   await mainWindow.loadFile('src/pages/editor/index.html')
-  
+
   //Open devtools content
-  mainWindow.webContents.openDevTools() 
-  }
+  //mainWindow.webContents.openDevTools() 
 
-  //File
-  var file = {}
+  createNewFile() //Ja abrir com o nome do arquivo
 
-  //Create new file
-  function createNewFile() {
-    file = {
-      name: 'novo_arquivo.txt',
-      content: '',
-      saved: false,
-      path: app.getPath('documents') + '/novo_arquivo.txt'
-    }
-
-    //Send message to the renderer process (index receive)
-    mainWindow.webContents.send('set-file', file)
-    //In the main we can use send, but in the renderer, the ipc
-    
-  }
-
-  //Template Menu
-  const templateMenu = [
-    {
-      label: 'Arquivo',
-      submenu: [
-        {
-          label: 'Novo',
-          click() {
-            createNewFile()
-          }
-        },
-        {
-          label: 'Abrir'
-        },
-        {
-          label: 'Salvar'
-        },
-        {
-          label: 'Salvar como'
-        },
-        {
-          label: 'Sair',
-          role: process.platform === 'darwin' ? 'close' : 'quit' //darwin: mac
-        }
-      ]
-
-    }
-  ]
-
-  //Menu
-  const menu = Menu.buildFromTemplate(templateMenu)
-  Menu.setApplicationMenu(menu)
-
-  //On Ready
-  app.on('ready', createWindow)
-  
-  //Activate
-  app.on('activate', function () {
-    if (mainWindow === null) {
-      createWindow()
-    }
+  ipcMain.on('update-content', function (event, data) {
+    file.content = data
   })
 
-  
+}
 
+//File
+var file = {}
 
-
-
-
-
-
-
-
-
-
-
-  /*
-  //file 
-  var file = {}
-
-  //Create new file
-  function createNewFile() {
-    file = {
-      name: 'novo-arquivo.txt',
-      content: '',
-      saved: false,
-      path: app.getPath('documents') + '/novo-arquivo.txt'
-    };
-    //Enviando mensagem para nosso processo renderizador
-    mainWindow.webContents.send('set-file', file)
+//Create new file
+function createNewFile() {
+  file = {
+    name: 'novo_arquivo.txt',
+    content: '',
+    saved: false,
+    path: app.getPath('documents') + '/novo_arquivo.txt'
   }
 
-  //Template Menu
-  const templateMenu = [
-    {
-      label: 'Arquivo',
-      submenu: [
-        {
-          label: 'Novo',
-          click() {
-            createNewFile()
-          }
-        },
-        {
-          label: 'Abrir'
-        },
-        {
-          label: 'Salvar'
-        },
-        {
-          label: 'Salvar como'
-        },
-        {
-          label: 'Sair',
-          role: process.platform === 'darwin' ? 'close' : 'quit' //darwin: mac
-        }
-      ]
+  //Send message to the renderer process (index receive)
+  mainWindow.webContents.send('set-file', file)
+  //In the main we can use send, but in the renderer, the ipc
 
-    }
-  ]
+}
 
-  //Menu
-  const menu = Menu.buildFromTemplate(templateMenu)
-  Menu.setApplicationMenu(menu)
+//Salvar o arquivo no disco
+function writeFile(filePath) {
+  try {
+    fs.writeFile(filePath, file.content, function (error) {
+      //Erro
+      if (error) throw error
+
+      //Arquivo Salvo
+      file.path = filePath;
+      file.saved = true;
+      file.name = path.basename(filePath)
+      /*Para receber o content, vamos usar o ipcRenderer para enviar
+      o conteudo, igual usamos para receber
+      */
+
+      mainWindow.webContents.send('set-file', file)
+    })
+  } catch (e) {
+    console.log(e)
+  }
+}
 
 
-  // Open the DevTools.
-  // mainWindow.webContents.openDevTools()
+// Save As
+async function saveFileAs() {
 
-  // Emitted when the window is closed.
-  mainWindow.on('closed', function () {
-    // Dereference the window object, usually you would store windows
-    // in an array if your app supports multi windows, this is the time
-    // when you should delete the corresponding element.
-    mainWindow = null
+  //Dialog
+  let dialogFile = await dialog.showSaveDialog({
+    defaultPath: file.path
+  });
+
+  //Verificar Cancelamento
+  if (dialogFile.canceled) {
+    return false
+  }
+
+  writeFile(dialogFile.filePath)
+}
+
+//Save
+function saveFile() {
+  //save
+  if (file.saved) {
+    return writeFile(file.path)
+  
+    //save as
+  } else {
+    return saveFileAs(file.path)
+  }
+
+}
+
+//Read file
+function readFile(filePath){
+  try {
+    return fs.readFileSync(filePath, 'utf-8')
+  } catch (e) {
+    console.log(e)
+    return ''
+  }
+}
+
+//Open file
+async function openFile(){
+  //dialog
+  let dialogFile = await dialog.showOpenDialog({
+    defaultPath: file.path
   })
-//}
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
+  //Verificar cancelamento
+  if (dialogFile.canceled) return false
+
+  //Abrir
+  file = {
+    name: path.basename(dialogFile.filePaths[0]),
+    content: readFile(dialogFile.filePaths[0]),
+    saved: true,
+    path: dialogFile.filePaths[0]
+  }
+
+  //Emitir o evento (Abrir o arquivo no projeto)
+  mainWindow.webContents.send('set-file', file)
+}
+
+//Template Menu
+const templateMenu = [
+  {
+    label: 'Arquivo',
+    submenu: [
+      {
+        label: 'Novo',
+        accelerator: 'CmdOrCtrl+N',
+        click() {
+          createNewFile()
+        }
+      },
+      {
+        label: 'Abrir',
+        accelerator: 'CmdOrCtrl+O',
+        click() {
+          openFile()
+        }
+      },
+      {
+        label: 'Salvar',
+        accelerator: 'CmdOrCtrl+S',
+        click() {
+          saveFile()
+        }
+      },
+      {
+        label: 'Salvar como',
+        accelerator: 'CmdOrCtrl+Shift+N',
+        click() {
+          saveFileAs()
+        }
+      },
+      {
+        type: 'separator'
+      },
+      {
+        label: 'Sair',
+        accelerator: 'CmdOrCtrl+Q',
+        role: process.platform === 'darwin' ? 'close' : 'quit' //darwin: mac
+      }
+    ]
+
+  },
+  {
+    label:'Editar',
+    submenu:[
+      {
+        label:'Desfazer',
+        role:'undo'
+      },
+      {
+        label: 'Refazer',
+        role: 'redo'
+      },
+
+      {
+        type: 'separator'
+      },
+
+
+      {
+        label: 'Copiar',
+        role: 'copy'
+      },
+      {
+        label: 'Cortar',
+        role: 'cut'
+      },
+      {
+        label: 'Colar',
+        role: 'paste'
+      }
+    ]
+  },
+  {
+    label:'Ajuda',
+    submenu:[
+      {
+        label: 'Electron',
+        click(){
+          shell.openExternal('https://www.electronjs.org/')
+        }
+      }
+    ]
+  }
+]
+
+//Menu
+const menu = Menu.buildFromTemplate(templateMenu)
+Menu.setApplicationMenu(menu)
+
+//On Ready
 app.on('ready', createWindow)
 
-// Quit when all windows are closed.
-app.on('window-all-closed', function () {
-  // On macOS it is common for applications and their menu bar
-  // to stay active until the user quits explicitly with Cmd + Q
-  app.quit()
-})
-
+//Activate
 app.on('activate', function () {
-  // On macOS it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   if (mainWindow === null) {
     createWindow()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
-
-
-*/
